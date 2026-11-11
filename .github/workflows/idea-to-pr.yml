@@ -1,0 +1,87 @@
+# Idea to PR: an idea becomes a brief, a person approves it, then an issue and a pull request are opened.
+# The build job is a stand-in: it commits the brief instead of having a coding agent make the change.
+name: Idea to PR
+run-name: "Idea to PR: ${{ inputs.idea }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      idea:
+        description: The idea, in a sentence or two
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  brief:
+    name: Write the brief
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      models: read
+    outputs:
+      title: ${{ steps.write.outputs.title }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ask a model for a brief
+        id: write
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDEA: ${{ inputs.idea }}
+        run: |
+          files=$(for f in README.md CONTRIBUTING.md src/*.js bin/*.js; do printf -- '--- %s\n' "$f"; cat "$f"; done)
+          jq -n --arg idea "$IDEA" --arg files "$files" '{
+            model: "openai/gpt-4.1-mini",
+            messages: [{ role: "user", content: ("Repository files:\n" + $files + "\n\nIdea: " + $idea +
+              "\n\nWrite a short brief for one small change to this repository. First line: a plain title under 70 characters, with no Markdown. Then a blank line, then the brief in Markdown: what to change, in which files, and how to test it.") }]
+          }' > request.json
+          curl -sSf https://models.github.ai/inference/chat/completions \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/json" -d @request.json \
+            | jq -r '.choices[0].message.content' > brief.md
+          echo "title=$(head -n1 brief.md | tr -d '#*' | cut -c1-70)" >> "$GITHUB_OUTPUT"
+          { echo "## Brief"; echo; cat brief.md; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brief
+          path: brief.md
+
+  approve:
+    name: Approve the brief
+    needs: brief
+    runs-on: ubuntu-latest
+    environment: approve-brief
+    steps:
+      - run: echo "Brief approved."
+
+  build:
+    name: Open the issue and pull request
+    needs: [brief, approve]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: brief
+          path: ${{ runner.temp }}/brief
+      - name: Open the issue and pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ needs.brief.outputs.title }}
+          BRIEF: ${{ runner.temp }}/brief/brief.md
+        run: |
+          issue=$(gh issue create --title "$TITLE" --body-file "$BRIEF")
+          number=${issue##*/}
+          git switch -c "idea/$number"
+          mkdir -p briefs && cp "$BRIEF" "briefs/$number.md"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add briefs && git commit -m "docs: add the brief for #$number"
+          git push origin "idea/$number"
+          pr=$(gh pr create --head "idea/$number" --title "$TITLE" \
+            --body "Closes #$number. Stand-in: a coding agent would make the change here; this pull request only adds the brief.")
+          { echo "## Opened"; echo; echo "- Issue: $issue"; echo "- Pull request: $pr"; } >> "$GITHUB_STEP_SUMMARY"

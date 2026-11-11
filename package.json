@@ -1,0 +1,10 @@
+{
+  "name": "tally",
+  "version": "1.0.0",
+  "description": "Count the lines, words and characters in text.",
+  "private": true,
+  "license": "UNLICENSED",
+  "bin": { "tally": "bin/tally.js" },
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=20" }
+}
