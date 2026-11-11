@@ -24,6 +24,5 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before you change anything.
 ## Idea to PR demo
 
 This repository also demonstrates an "idea to pull request" flow as a GitHub Actions workflow:
-Actions → Idea to PR → Run workflow. A model writes a brief, the run waits for approval, then it
-opens an issue and a pull request. The pull request only adds the brief; a coding agent would make
-the change there.
+Actions → Idea to PR → Run workflow. The run writes a brief, waits for approval, then opens an issue and a pull request. No agent runs:
+the brief is a template and the pull request only adds it, to show the flow's shape.
